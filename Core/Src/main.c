@@ -136,47 +136,47 @@ uint16_t pointer = 0;
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	// 1ms period
-	if (htim->Instance == TIM2)
-	{
-		PV_speed = -diffCounter*toRads;
-		PV_position = PV_position - (diffCounter*toRad);
-		diffCounter = 0;
-
-		// P speed
-		e_speed = SP_speed - PV_speed;
-		SP_iq = K_speed*e_speed;
-
-
-		 //PI position
-	    e_position = SP_position - PV_position;
-
-		sum_position = sum_position + e_position;
-			if (sum_position > 6.28)
-			  sum_position = 6.28;
-			else if (sum_position < -6.28)
-			  sum_position = -6.28;
-
-	    SP_speed = K_position*e_position + Ki_position*sum_position;
-
-/*//code for measuring
-	if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
-	{
-		measurement2[pointer] = encoder;
-		measurement[pointer]  = PV_position;
-	  	if (pointer < 254)
-		  pointer++;
-	} else {
-		pointer = 0;
-	}*/
-	}
+//	// 1ms period
+//	if (htim->Instance == TIM2)
+//	{
+//		PV_speed = -diffCounter*toRads;
+//		PV_position = PV_position - (diffCounter*toRad);
+//		diffCounter = 0;
+//
+//		// P speed
+//		e_speed = SP_speed - PV_speed;
+//		SP_iq = K_speed*e_speed;
+//
+//
+//		 //PI position
+//	    e_position = SP_position - PV_position;
+//
+//		sum_position = sum_position + e_position;
+//			if (sum_position > 6.28)
+//			  sum_position = 6.28;
+//			else if (sum_position < -6.28)
+//			  sum_position = -6.28;
+//
+//	    SP_speed = K_position*e_position + Ki_position*sum_position;
+//
+///*//code for measuring
+//	if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
+//	{
+//		measurement2[pointer] = encoder;
+//		measurement[pointer]  = PV_position;
+//	  	if (pointer < 254)
+//		  pointer++;
+//	} else {
+//		pointer = 0;
+//	}*/
+//	}
 }
 
 // 50us period
 void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
  {
-      HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET) ;
-      // 10 us
+    HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET) ;
+
 	  measureI[0] = hadc1.Instance->JDR1; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_1));
 	  measureI[1] = hadc1.Instance->JDR2; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_2));
 	  measureI[2] = hadc1.Instance->JDR3; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_3));
@@ -198,33 +198,33 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  spiRxBuffer = spiRxBuffer & 0x3FFE;
 	  encoder = 0x3FFF-spiRxBuffer;
 
-		// modulo % 2PI - 10 us
-	  //encod = encoder*encoderConst*11; // x / 16384 * 11 (polpares) (0.0 - 11.0)
-	  //angleRad = (encod - (int) encod) * twoPI;	// ((0.0 - 0.99) * 2PI
+	  // modulo % 2PI - 4 us
+	  encod = encoder*encoderConst*11; // x / 16384 * 11 (polpares) (0.0 - 11.0)
+	  angleRad = (encod - (int) encod) * twoPI;	// ((0.0 - 0.99) * 2PI
 
-	  // 6 us
+	  // 2 us
 	  cosine = arm_sin_f32(angleRad);
 	  sine = arm_cos_f32(angleRad);
 
-	  // mechanical speed of rotor
-	  diff = encoder - encoderBefore;
+//	  // mechanical speed of rotor
+//	  diff = encoder - encoderBefore;
+//
+//	  if (diff < -12000)
+//	  {
+//		  diff = 16383 - encoderBefore + encoder;
+//	  }
+//	  else if (diff > 12000)
+//	  {
+//		  diff = encoder - 16383 - encoderBefore;
+//	  }
+//
+//		  diffCounter = diffCounter + diff;
+//		  encoderBefore = encoder;
 
-	  if (diff < -12000)
-	  {
-		  diff = 16383 - encoderBefore + encoder;
-	  }
-	  else if (diff > 12000)
-	  {
-		  diff = encoder - 16383 - encoderBefore;
-	  }
-
-		  diffCounter = diffCounter + diff;
-		  encoderBefore = encoder;
-
-		  // 17 us
-	  measA = (1.5957*measureI[0])-3089.72; // iA (mA)
-	  measB = (1.5957*measureI[1])-3089.72; // iB (mA)
-	  measC = (1.5957*measureI[2])-3089.72; // iC (mA)
+	// 13 us
+	  measA = (1.5957* (float) measureI[0])-3089.72; // iA (mA)
+	  measB = (1.5957* (float) measureI[1])-3089.72; // iB (mA)
+	  measC = (1.5957* (float) measureI[2])-3089.72; // iC (mA)
 
 	  //Direct transformations
 	  alpha = 0.333 * (2*measA - measB - measC);
@@ -254,21 +254,21 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  beta  = sine*ud + cosine*uq;
 
 	  // hodnoty z mV na V
-	  uA = alpha*0.001;
+	  uA = alpha;
 
 	  if(uA < -10.2)
 		  uA = -10.2;
 	  else if (uA > 10.2)
 		  uA = 10.2;
 
-	  uB = (0.866*beta - 0.5*alpha)*0.001;
+	  uB = (0.866*beta - 0.5*alpha);
 
 	  if(uB < -10.2)
 	  		  uB = -10.2;
 	  else if (uB > 10.2)
 	  		  uB = 10.2;
 
-	  uC = (-0.866*beta - 0.5*alpha)*0.001;
+	  uC = (-0.866*beta - 0.5*alpha);
 
 	  if(uC < -10.2)
 	  		  uC = -10.2;
