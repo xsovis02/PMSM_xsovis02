@@ -128,7 +128,6 @@ int16_t diff = 0, diffCounter = 0;
 uint8_t counter = 0;
 
 float angleRad, cosine, sine, encod;
-uint8_t flag, periods;
 
 float measurement[256];
 uint16_t measurement2[256];
@@ -199,7 +198,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  encoder = 0x3FFF-spiRxBuffer;
 
 	  // modulo % 2PI - 4 us
-	  encod = encoder*encoderConst*11; // x / 16384 * 11 (polpares) (0.0 - 11.0)
+	  encod = encoder*encoderConst*11.0f; // x / 16384 * 11 (polpares) (0.0 - 11.0)
 	  angleRad = (encod - (int) encod) * twoPI;	// ((0.0 - 0.99) * 2PI
 
 	  // 2 us
@@ -222,13 +221,13 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 //		  encoderBefore = encoder;
 
 	// 13 us
-	  measA = (1.5957* (float) measureI[0])-3089.72; // iA (mA)
-	  measB = (1.5957* (float) measureI[1])-3089.72; // iB (mA)
-	  measC = (1.5957* (float) measureI[2])-3089.72; // iC (mA)
+	  measA = (1.5957f* (float) measureI[0])-3089.72f; // iA (mA)
+	  measB = (1.5957f* (float) measureI[1])-3089.72f; // iB (mA)
+	  measC = (1.5957f* (float) measureI[2])-3089.72f; // iC (mA)
 
 	  //Direct transformations
-	  alpha = 0.333 * (2*measA - measB - measC);
-	  beta  = 0.577 * (measB - measC);
+	  alpha = 0.333f * (2*measA - measB - measC);
+	  beta  = 0.577f * (measB - measC);
 
 	  PV_id = cosine*alpha + sine*beta;
 	  PV_iq = -sine*alpha + cosine*beta;
@@ -239,11 +238,11 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 
 	  // anti wind-up
 	  sum_d = sum_d + e_d;
-	  if (sum_d > 10200)
-		  sum_d = 10200;
+	  if (sum_d > 10200.0f)
+		  sum_d = 10200.0f;
 	  sum_q = sum_q + e_q;
-	  if (sum_q > 10200)
-	 		  sum_q = 10200;
+	  if (sum_q > 10200.0f)
+	 		  sum_q = 10200.0f;
 
 	  ud = K_d*e_d + Ki_d*sum_d;
 	  uq = K_q*e_q + Ki_q*sum_q;
@@ -256,28 +255,28 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  // hodnoty z mV na V
 	  uA = alpha;
 
-	  if(uA < -10.2)
-		  uA = -10.2;
-	  else if (uA > 10.2)
-		  uA = 10.2;
+	  if(uA < -10.2f)
+		  uA = -10.2f;
+	  else if (uA > 10.2f)
+		  uA = 10.2f;
 
-	  uB = (0.866*beta - 0.5*alpha);
+	  uB = (0.866f*beta - 0.5f*alpha);
 
-	  if(uB < -10.2)
-	  		  uB = -10.2;
-	  else if (uB > 10.2)
-	  		  uB = 10.2;
+	  if(uB < -10.2f)
+	  		  uB = -10.2f;
+	  else if (uB > 10.2f)
+	  		  uB = 10.2f;
 
-	  uC = (-0.866*beta - 0.5*alpha);
+	  uC = (-0.866f*beta - 0.5f*alpha);
 
-	  if(uC < -10.2)
-	  		  uC = -10.2;
-	  else if (uC > 10.2)
-	  		  uC = 10.2;
+	  if(uC < -10.2f)
+	  		  uC = -10.2f;
+	  else if (uC > 10.2f)
+	  		  uC = 10.2f;
 
-	  htim1.Instance->CCR1 = uA*83.33+1000;
-	  htim1.Instance->CCR2 = uB*83.33+1000;
-	  htim1.Instance->CCR3 = uC*83.33+1000;
+	  htim1.Instance->CCR1 = uA*0.08333f+1000.0f;
+	  htim1.Instance->CCR2 = uB*0.08333f+1000.0f;
+	  htim1.Instance->CCR3 = uC*0.08333f+1000.0f;
 
 	  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_SET) ;
  }
