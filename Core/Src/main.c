@@ -43,6 +43,7 @@
 #define encoderConst 	0.000061035f
 #define toRads     		0.38395f
 #define toRad 	   		0.00038395f
+#define VFstep			0.15707963f // 2PI/40
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -67,52 +68,52 @@ uint16_t angle = 0;
 // values in mA
 
 // setpoint mA
-float SP_id = 0;
-float SP_iq = 0;
+float SP_id = 0.0f;
+float SP_iq = 150.0f;
 
 // measured mA
-float PV_id = 0;
-float PV_iq = 0;
+float PV_id = 0.0f;
+float PV_iq = 0.0f;
 
 // calculated mV
-float ud = 0;
-float uq = 0;
+float ud = 0.0f;
+float uq = 0.0f;
 
-float alpha = 0;
-float beta = 0;
+float alpha = 0.0f;
+float beta = 0.0f;
 
 // hodnoty v mV
-float uA = 0;
-float uB = 0;
-float uC = 0;
+float uA = 0.0f;
+float uB = 0.0f;
+float uC = 0.0f;
 
 // pi d
-float K_d = 12.11; 			// stability 70� PM
-float Ki_d = 4.13;
-float e_d = 0;
-float sum_d = 0;
+float K_d = 3.92f; 			// stability 70� PM
+float Ki_d = 0.3238f;
+float e_d = 0.0f;
+float sum_d = 0.0f;
 
 // pi q
-float K_q = 12.11; //15.11
-float Ki_q = 4.13;
-float e_q = 0;
-float sum_q = 0;
+float K_q = 3.92f;
+float Ki_q = 0.3238f;
+float e_q = 0.0f;
+float sum_q = 0.0f;
 
 // p speed --------------------------------------
 float K_speed  = 25.18;   	// stability 100� PM
-float PV_speed = 0;
-float e_speed = 0;
+float PV_speed = 0.0f;
+float e_speed = 0.0f;
 
 // setpoint speed
-float SP_speed = 0;
+float SP_speed = 0.0f;
 
 // pi position --------------------------------
-float K_position = 10.00;
-float Ki_position = 0.15;
-float e_position = 0;
-float sum_position = 0;
+float K_position = 10.00f;
+float Ki_position = 0.15f;
+float e_position = 0.0f;
+float sum_position = 0.0f;
 
-float PV_position = 0;
+float PV_position = 0.0f;
 
 // setpoint position
 float SP_position = 2*3.14;
@@ -122,16 +123,20 @@ uint16_t spiRxBuffer;
 uint16_t measureI[3] = {0,0,0}; 	// iA, iB, iC (ADC)
 float measA, measB, measC;	    // iA, iB, iC (mA)
 
-uint16_t encoder = 0, encoderBefore = 0;
+int16_t encoder = 0, encoderBefore = 0;
 int16_t diff = 0, diffCounter = 0;
 
 uint8_t counter = 0;
 
 float angleRad, cosine, sine, encod;
 
-float measurement[256];
-uint16_t measurement2[256];
+float measurementI[300];
+float measurementU[128];
 uint16_t pointer = 0;
+
+float yd,ydk,ydkk,udk,udkk = 0.0f;
+float yq,yqk,yqkk,uqk,uqkk = 0.0f;
+float VFsine = 0.0f, VFcounter=0.0f;
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -178,7 +183,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 
 	  measureI[0] = hadc1.Instance->JDR1; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_1));
 	  measureI[1] = hadc1.Instance->JDR2; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_2));
-	  measureI[2] = hadc1.Instance->JDR3; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_3));
+	  // measureI[2] = hadc1.Instance->JDR3; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_3)); // will be calculated
 
 	  // 6us
 	  __HAL_SPI_ENABLE(&hspi3);
@@ -193,9 +198,13 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 
 	  __HAL_SPI_DISABLE(&hspi3);
 
+	  spiRxBuffer &= 0x3FFE;
+	  encoder = (0x3FFF-spiRxBuffer)+150;
 
-	  spiRxBuffer = spiRxBuffer & 0x3FFE;
-	  encoder = 0x3FFF-spiRxBuffer;
+	  if (encoder < 0)
+		  encoder = 16387 + encoder;
+	  else if (encoder > 16387)
+		  encoder = encoder - 16387;
 
 	  // modulo % 2PI - 4 us
 	  encod = encoder*encoderConst*11.0f; // x / 16384 * 11 (polpares) (0.0 - 11.0)
@@ -204,6 +213,11 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  // 2 us
 	  cosine = arm_sin_f32(angleRad);
 	  sine = arm_cos_f32(angleRad);
+
+	  VFsine = arm_sin_f32(VFcounter)*1500.0f;
+	  VFcounter = VFcounter + VFstep;
+	  if (VFcounter > twoPI)
+		  	  VFcounter = 0.0f;
 
 //	  // mechanical speed of rotor
 //	  diff = encoder - encoderBefore;
@@ -221,9 +235,11 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 //		  encoderBefore = encoder;
 
 	// 13 us
-	  measA = (1.5957f* (float) measureI[0])-3089.72f; // iA (mA)
-	  measB = (1.5957f* (float) measureI[1])-3089.72f; // iB (mA)
-	  measC = (1.5957f* (float) measureI[2])-3089.72f; // iC (mA)
+	  measA = (1.5957f* (float) measureI[0])-3089.72f; 	// iA (mA)
+	  measB = (1.5957f* (float) measureI[1])-3089.72f; 	// iB (mA)
+	  measC = -measA-measB;								// iC (mA) calculated
+
+//	  measC = (1.5957f* (float) measureI[2])-3089.72f; 	// iC (mA) // for measuring
 
 	  //Direct transformations
 	  alpha = 0.333f * (2*measA - measB - measC);
@@ -232,9 +248,33 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  PV_id = cosine*alpha + sine*beta;
 	  PV_iq = -sine*alpha + cosine*beta;
 
+	  yq = 0.9608f*yqk + 0.03921*uqk;
+	  yd = 0.9608f*ydk + 0.03921*udk;
+
+	  yqk = yq;
+	  ydk = yd;
+
+	  uqk = PV_iq;
+	  udk = PV_id;
+
+
+//	  uq = 0.0f;
+
+	  if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
+	  {
+		  SP_iq = 150.0f;
+//		  measurementU[pointer] =  yq;
+		  measurementI[pointer]  = yq;
+		  if (pointer < 300)
+			  pointer++;
+	  } else {
+		  SP_iq = 0.0f;
+		  pointer = 0;
+	  }
+
 	   //PI current
-	  e_d = SP_id - PV_id;
-	  e_q = SP_iq - PV_iq;
+	  e_d = SP_id - yd;
+	  e_q = SP_iq - yq;
 
 	  // anti wind-up
 	  sum_d = sum_d + e_d;
@@ -244,8 +284,9 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  if (sum_q > 10200.0f)
 	 		  sum_q = 10200.0f;
 
-	  ud = K_d*e_d + Ki_d*sum_d;
+	  ud = (K_d*e_d + Ki_d*sum_d)+VFsine;
 	  uq = K_q*e_q + Ki_q*sum_q;
+
 
 
 	 //Inverse transformation
@@ -255,28 +296,33 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  // hodnoty z mV na V
 	  uA = alpha;
 
-	  if(uA < -10.2f)
-		  uA = -10.2f;
-	  else if (uA > 10.2f)
-		  uA = 10.2f;
+	  if(uA < -10200.0f)
+		  uA = -10200.0f;
+	  else if (uA > 10200.0f)
+		  uA = 10200.0f;
 
 	  uB = (0.866f*beta - 0.5f*alpha);
 
-	  if(uB < -10.2f)
-	  		  uB = -10.2f;
-	  else if (uB > 10.2f)
-	  		  uB = 10.2f;
+	  if(uB < -10200.0f)
+	  		  uB = -10200.0f;
+	  else if (uB > 10200.0f)
+	  		  uB = 10200.0f;
 
 	  uC = (-0.866f*beta - 0.5f*alpha);
 
-	  if(uC < -10.2f)
-	  		  uC = -10.2f;
-	  else if (uC > 10.2f)
-	  		  uC = 10.2f;
+	  if(uC < -10200.0f)
+	  		  uC = -10200.0f;
+	  else if (uC > 10200.0f)
+	  		  uC = 10200.0f;
 
-	  htim1.Instance->CCR1 = uA*0.08333f+1000.0f;
-	  htim1.Instance->CCR2 = uB*0.08333f+1000.0f;
-	  htim1.Instance->CCR3 = uC*0.08333f+1000.0f;
+	  htim1.Instance->CCR1 = (uint32_t) (uA*0.08333f+1000.0f);
+	  htim1.Instance->CCR2 = (uint32_t) (uB*0.08333f+1000.0f);
+	  htim1.Instance->CCR3 = (uint32_t) (uC*0.08333f+1000.0f);
+
+//	  htim1.Instance->CCR1 = 799;
+//	  htim1.Instance->CCR2 = 1099;
+//	  htim1.Instance->CCR3 = 1099;
+
 
 	  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_SET) ;
  }
@@ -346,8 +392,8 @@ int main(void)
   if(HAL_OK != HAL_TIM_Base_Start(&htim1))
  	  Error_Handler();
 
-  if(HAL_OK != HAL_TIM_Base_Start_IT(&htim2))
-   	  Error_Handler();
+  //if(HAL_OK != HAL_TIM_Base_Start_IT(&htim2))
+  // 	  Error_Handler();
 
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
@@ -446,7 +492,6 @@ static void MX_ADC1_Init(void)
   /* USER CODE END ADC1_Init 0 */
 
   ADC_MultiModeTypeDef multimode = {0};
-  ADC_ChannelConfTypeDef sConfig = {0};
   ADC_InjectionConfTypeDef sConfigInjected = {0};
 
   /* USER CODE BEGIN ADC1_Init 1 */
@@ -464,8 +509,6 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
@@ -483,27 +526,15 @@ static void MX_ADC1_Init(void)
   /** Disable Injected Queue
   */
   HAL_ADCEx_DisableInjectedQueue(&hadc1);
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_6;
-  sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
-  sConfig.SingleDiff = ADC_SINGLE_ENDED;
-  sConfig.OffsetNumber = ADC_OFFSET_NONE;
-  sConfig.Offset = 0;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /** Configure Injected Channel
   */
   sConfigInjected.InjectedChannel = ADC_CHANNEL_6;
   sConfigInjected.InjectedRank = ADC_INJECTED_RANK_1;
-  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_47CYCLES_5;
+  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_92CYCLES_5;
   sConfigInjected.InjectedSingleDiff = ADC_SINGLE_ENDED;
   sConfigInjected.InjectedOffsetNumber = ADC_OFFSET_NONE;
   sConfigInjected.InjectedOffset = 0;
-  sConfigInjected.InjectedNbrOfConversion = 4;
+  sConfigInjected.InjectedNbrOfConversion = 2;
   sConfigInjected.InjectedDiscontinuousConvMode = DISABLE;
   sConfigInjected.AutoInjectedConv = DISABLE;
   sConfigInjected.QueueInjectedContext = DISABLE;
@@ -518,23 +549,6 @@ static void MX_ADC1_Init(void)
   */
   sConfigInjected.InjectedChannel = ADC_CHANNEL_16;
   sConfigInjected.InjectedRank = ADC_INJECTED_RANK_2;
-  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure Injected Channel
-  */
-  sConfigInjected.InjectedChannel = ADC_CHANNEL_15;
-  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_3;
-  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure Injected Channel
-  */
-  sConfigInjected.InjectedChannel = ADC_CHANNEL_1;
-  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_4;
-  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_92CYCLES_5;
   if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
   {
     Error_Handler();
