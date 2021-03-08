@@ -43,7 +43,7 @@
 #define encoderConst 	0.000061035f
 #define toRads     		0.38395f
 #define toRad 	   		0.00038395f
-#define VFstep			0.15707963f // 2PI/40
+#define VFstep			0.314159f // 2PI/20 - 1000Hz
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -88,14 +88,14 @@ float uB = 0.0f;
 float uC = 0.0f;
 
 // pi d
-float K_d = 3.92f; 			// stability 70� PM
-float Ki_d = 0.3238f;
+float K_d = 7.92f; 			// stability 70� PM
+float Ki_d = 0.318f;
 float e_d = 0.0f;
 float sum_d = 0.0f;
 
 // pi q
-float K_q = 3.92f;
-float Ki_q = 0.3238f;
+float K_q = 7.92f;
+float Ki_q = 0.318f;
 float e_q = 0.0f;
 float sum_q = 0.0f;
 
@@ -133,6 +133,21 @@ float angleRad, cosine, sine, encod;
 float measurementI[300];
 float measurementU[128];
 uint16_t pointer = 0;
+
+
+// PI
+float Kp_fi = 1.0f, Ki_fi = 1.0f;
+float ypi = 0.0f;
+
+// sum
+
+float fi, fik = 0.0f;
+
+float yf,yfk,yfkk,ufk,ufkk = 0.0f;
+float y = 0.0f;
+
+// LPF
+float ylpf, yklpf, uklpf = 0.0f;
 
 float yd,ydk,ydkk,udk,udkk = 0.0f;
 float yq,yqk,yqkk,uqk,uqkk = 0.0f;
@@ -253,9 +268,15 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 
 	  yqk = yq;
 	  ydk = yd;
-
 	  uqk = PV_iq;
 	  udk = PV_id;
+
+	  yf = 0.192f*yfk-1.0f*yfkk+0.1236f*ufk-.1236f*ufkk;
+
+	  yfk = yf;
+	  yfkk = yfk;
+	  ufk = PV_iq;
+	  ufkk = ufk;
 
 
 //	  uq = 0.0f;
@@ -289,6 +310,20 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 
 
 
+
+	  y = yf*VFsine;
+	  ylpf =  0.9729*yklpf + 0.02713f*uklpf;
+
+	  yklpf = ylpf;
+	  uklpf = y;
+
+	  ypi = ypi + ylpf * Ki_fi;
+	  fik  = ypi + ylpf * Kp_fi;
+
+	  fi = fi+fik;
+
+
+
 	 //Inverse transformation
 	  alpha = cosine*ud - sine*uq;
 	  beta  = sine*ud + cosine*uq;
@@ -319,9 +354,9 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  htim1.Instance->CCR2 = (uint32_t) (uB*0.08333f+1000.0f);
 	  htim1.Instance->CCR3 = (uint32_t) (uC*0.08333f+1000.0f);
 
-//	  htim1.Instance->CCR1 = 799;
-//	  htim1.Instance->CCR2 = 1099;
-//	  htim1.Instance->CCR3 = 1099;
+//	  htim1.Instance->CCR1 = 1199;
+//	  htim1.Instance->CCR2 = 899;
+//	  htim1.Instance->CCR3 = 899;
 
 
 	  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_SET) ;
