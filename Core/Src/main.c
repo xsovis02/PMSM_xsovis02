@@ -33,6 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define offSetValue		817
 #define spiToRad   		0.00038352f
 #define spiToDeg   		0.02197f
 #define encoderRad 		0.00421845f
@@ -40,6 +41,7 @@
 #define toVolt     		0.00080566f
 #define toAmp      		0.00048828f
 #define twoPI		 	6.283185f
+#define stepTwoPI		5.969026f
 #define encoderConst 	0.000061035f
 #define toRads     		0.38395f
 #define toRad 	   		0.00038395f
@@ -88,14 +90,14 @@ float uB = 0.0f;
 float uC = 0.0f;
 
 // pi d
-float K_d = 7.92f; 			// stability 70� PM
-float Ki_d = 0.318f;
+float K_d = 7.5f; 			// stability 70� PM
+float Ki_d = 0.78f;
 float e_d = 0.0f;
 float sum_d = 0.0f;
 
 // pi q
-float K_q = 7.92f;
-float Ki_q = 0.318f;
+float K_q = 7.5f; // 7.75
+float Ki_q = 0.78f; // 0.9562
 float e_q = 0.0f;
 float sum_q = 0.0f;
 
@@ -128,40 +130,43 @@ int16_t diff = 0, diffCounter = 0;
 
 uint8_t counter = 0;
 
-float angleRad, cosine, sine, encod;
+float angleRad, cosine = 1.0f, sine = 0.0f, encod;
 
-float measurementI[300];
-float measurementU[128];
+float measurement[8000];
 uint16_t pointer = 0;
 
 
 // PI
-float Kp_fi = 1.0f, Ki_fi = 1.0f;
+float Kp_fi = 1.0f, Ki_fi = 0.85f;
 float ypi = 0.0f;
 
-// sum
-
+float omega = 0.0f;
 float fi, fik = 0.0f;
 
-float yf,yfk,yfkk,ufk,ufkk = 0.0f;
-float y = 0.0f;
 
-// LPF
-float ylpf, yklpf, uklpf = 0.0f;
 
-float yd,ydk,ydkk,udk,udkk = 0.0f;
-float yq,yqk,yqkk,uqk,uqkk = 0.0f;
-float VFsine = 0.0f, VFcounter=0.0f;
+// LPF - improved frequency - integration
+float ylpf, ylpfk, ulpfk = 0.0f;
+
+// LPF filtr feedback current
+float yd,ydk,udk = 0.0f;
+float yq,yqk,uqk = 0.0f;
+
+// BPF extract usefull value from iq
+float ybpf,ybpfk,ybpfkk,ubpfk,ubpfkk = 0.0f;
+
+float VFsin = 0.0f, VFcos = 0.0f, VFcounter=0.0f;
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-//	// 1ms period
-//	if (htim->Instance == TIM2)
-//	{
-//		PV_speed = -diffCounter*toRads;
-//		PV_position = PV_position - (diffCounter*toRad);
-//		diffCounter = 0;
-//
+	// 1ms period
+	if (htim->Instance == TIM2)
+	{
+		PV_speed = -diffCounter*toRads;
+		PV_position = PV_position - (diffCounter*toRad);
+		diffCounter = 0;
+	}
+
 //		// P speed
 //		e_speed = SP_speed - PV_speed;
 //		SP_iq = K_speed*e_speed;
@@ -177,30 +182,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 //			  sum_position = -6.28;
 //
 //	    SP_speed = K_position*e_position + Ki_position*sum_position;
-//
-///*//code for measuring
-//	if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
-//	{
-//		measurement2[pointer] = encoder;
-//		measurement[pointer]  = PV_position;
-//	  	if (pointer < 254)
-//		  pointer++;
-//	} else {
-//		pointer = 0;
-//	}*/
-//	}
 }
 
 // 50us period
 void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
  {
     HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET) ;
-
+//
 	  measureI[0] = hadc1.Instance->JDR1; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_1));
 	  measureI[1] = hadc1.Instance->JDR2; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_2));
-	  // measureI[2] = hadc1.Instance->JDR3; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_3)); // will be calculated
 
-	  // 6us
 	  __HAL_SPI_ENABLE(&hspi3);
 	  HAL_GPIO_WritePin_Fast(GPIOD, GPIO_PIN_2, GPIO_PIN_RESET);
 
@@ -210,118 +201,125 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  spiRxBuffer = hspi3.Instance->DR;						//Read Data Register Directly
 
 	  HAL_GPIO_WritePin_Fast(GPIOD, GPIO_PIN_2, GPIO_PIN_SET);
-
 	  __HAL_SPI_DISABLE(&hspi3);
 
-	  spiRxBuffer &= 0x3FFE;
-	  encoder = (0x3FFF-spiRxBuffer)+150;
 
-	  if (encoder < 0)
-		  encoder = 16387 + encoder;
-	  else if (encoder > 16387)
-		  encoder = encoder - 16387;
+	  spiRxBuffer &= 0x3FFE;
+	  encoder = (0x3FFF - spiRxBuffer) - offSetValue;
+
+	  if (encoder > 16383)
+		  encoder = encoder - 16383;
+	  else if (encoder < 0)
+		  encoder = 16383 + encoder;
 
 	  // modulo % 2PI - 4 us
 	  encod = encoder*encoderConst*11.0f; // x / 16384 * 11 (polpares) (0.0 - 11.0)
 	  angleRad = (encod - (int) encod) * twoPI;	// ((0.0 - 0.99) * 2PI
 
 	  // 2 us
-	  cosine = arm_sin_f32(angleRad);
-	  sine = arm_cos_f32(angleRad);
+//	  cosine = arm_cos_f32(angleRad);
+//	  sine = arm_sin_f32(angleRad);
 
-	  VFsine = arm_sin_f32(VFcounter)*1500.0f;
+	  VFcos = arm_cos_f32(VFcounter)*2000.0f;
+	  VFsin = arm_sin_f32(VFcounter);
+
 	  VFcounter = VFcounter + VFstep;
-	  if (VFcounter > twoPI)
-		  	  VFcounter = 0.0f;
+	  if (VFcounter > stepTwoPI)
+		  	  VFcounter = 0;
 
-//	  // mechanical speed of rotor
-//	  diff = encoder - encoderBefore;
-//
-//	  if (diff < -12000)
-//	  {
-//		  diff = 16383 - encoderBefore + encoder;
-//	  }
-//	  else if (diff > 12000)
-//	  {
-//		  diff = encoder - 16383 - encoderBefore;
-//	  }
-//
-//		  diffCounter = diffCounter + diff;
-//		  encoderBefore = encoder;
 
-	// 13 us
-	  measA = (1.5957f* (float) measureI[0])-3089.72f; 	// iA (mA)
-	  measB = (1.5957f* (float) measureI[1])-3089.72f; 	// iB (mA)
+	  measA = ((1.5957f* (float) measureI[0])-3089.72f); 	// iA (mA)
+	  measB = ((1.5957f* (float) measureI[1])-3089.72f); 	// iB (mA)
 	  measC = -measA-measB;								// iC (mA) calculated
-
-//	  measC = (1.5957f* (float) measureI[2])-3089.72f; 	// iC (mA) // for measuring
 
 	  //Direct transformations
 	  alpha = 0.333f * (2*measA - measB - measC);
 	  beta  = 0.577f * (measB - measC);
 
-	  PV_id = cosine*alpha + sine*beta;
+ 	  PV_id = cosine*alpha + sine*beta;
 	  PV_iq = -sine*alpha + cosine*beta;
 
-	  yq = 0.9608f*yqk + 0.03921*uqk;
-	  yd = 0.9608f*ydk + 0.03921*udk;
+	  //yq = PV_iq;
+	  yq = 0.8957f*yqk  + 0.0522f*PV_iq + 0.0522f*uqk;
+	  yd = 0.8957f*ydk  + 0.0522f*PV_id + 0.0522f*udk;
 
 	  yqk = yq;
-	  ydk = yd;
 	  uqk = PV_iq;
+
+	  ydk = yd;
 	  udk = PV_id;
 
-	  yf = 0.192f*yfk-1.0f*yfkk+0.1236f*ufk-.1236f*ufkk;
 
-	  yfk = yf;
-	  yfkk = yfk;
-	  ufk = PV_iq;
-	  ufkk = ufk;
+	  ybpf = 1.8962f*ybpfk - 0.9937f*ybpfkk + 0.0031f*PV_iq - 0.0031f*ubpfkk;
+
+	  ybpfk = ybpf;
+	  ybpfkk = ybpfk;
+	  ubpfk = PV_iq;
+	  ubpfkk = ubpfk;
+//
+//
+	  ybpf = ybpf * VFsin;
+//
+	  ylpf = 0.8406f*ylpfk + 0.0797f*ybpf + 0.0797f*ulpfk;
+//
+//	  // PI regulátor
+//
+	  omega = Kp_fi*ylpf + ypi;
+	  ypi = ypi + Ki_fi*ylpf;
+
+	  fi = ypi+fi;
+
+	  if (fi > twoPI)
+		  fi = 0.0f;
+	  else if (fi < 0)
+		  fi = twoPI;
+//
+//
+	  cosine = arm_cos_f32(fi);
+	  sine = arm_sin_f32(fi);
 
 
-//	  uq = 0.0f;
-
-	  if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
-	  {
-		  SP_iq = 150.0f;
-//		  measurementU[pointer] =  yq;
-		  measurementI[pointer]  = yq;
-		  if (pointer < 300)
-			  pointer++;
-	  } else {
-		  SP_iq = 0.0f;
-		  pointer = 0;
-	  }
-
-	   //PI current
+	  //PI current
 	  e_d = SP_id - yd;
 	  e_q = SP_iq - yq;
 
 	  // anti wind-up
-	  sum_d = sum_d + e_d;
+	  sum_d = sum_d + e_d*Ki_d;
 	  if (sum_d > 10200.0f)
 		  sum_d = 10200.0f;
-	  sum_q = sum_q + e_q;
+	  sum_q = sum_q + e_q*Ki_q;
 	  if (sum_q > 10200.0f)
 	 		  sum_q = 10200.0f;
 
-	  ud = (K_d*e_d + Ki_d*sum_d)+VFsine;
+	  ud = (K_d*e_d + sum_d)+VFcos;
 	  uq = K_q*e_q + Ki_q*sum_q;
 
+	  if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
+	  {
+		  if (pointer > 20)
+		  {
+//			  uq = 8000.0f;
+			  SP_iq = 350.0f;
+		  }
 
+		  measurement[pointer]        = yd;
+		  measurement[(1000+pointer)] = yq;
+		  measurement[(2000+pointer)] = ud;
+		  measurement[(3000+pointer)] = uq;
+		  measurement[(4000+pointer)] = ybpf;
+		  measurement[(5000+pointer)] = e_q;
+		  measurement[(6000+pointer)] = angleRad;
+		  measurement[(7000+pointer)] = fi;
 
-
-	  y = yf*VFsine;
-	  ylpf =  0.9729*yklpf + 0.02713f*uklpf;
-
-	  yklpf = ylpf;
-	  uklpf = y;
-
-	  ypi = ypi + ylpf * Ki_fi;
-	  fik  = ypi + ylpf * Kp_fi;
-
-	  fi = fi+fik;
-
+		  if (pointer < 1000)
+			  pointer++;
+	  } else {
+//		  uq = 0.0f;
+		  SP_iq = 0.0f;
+		  pointer = 0;
+		  sum_d = 0.0f;
+		  sum_q = 0.0f;
+	  }
 
 
 	 //Inverse transformation
@@ -354,11 +352,11 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 	  htim1.Instance->CCR2 = (uint32_t) (uB*0.08333f+1000.0f);
 	  htim1.Instance->CCR3 = (uint32_t) (uC*0.08333f+1000.0f);
 
-//	  htim1.Instance->CCR1 = 1199;
-//	  htim1.Instance->CCR2 = 899;
-//	  htim1.Instance->CCR3 = 899;
+//	  htim1.Instance->CCR1 = 1599;
+//	  htim1.Instance->CCR2 = 699;
+//	  htim1.Instance->CCR3 = 699;
 
-
+//
 	  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_SET) ;
  }
 
@@ -417,7 +415,6 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
-  __HAL_SPI_ENABLE(&hspi3);
   if(HAL_OK != HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED))
 	  Error_Handler();
 
@@ -437,7 +434,8 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
 
-
+  SP_id = 0.0f;
+  SP_iq = 0.0f;
 
   /* USER CODE END 2 */
 
@@ -448,6 +446,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
   }
   /* USER CODE END 3 */
 }
@@ -565,7 +564,7 @@ static void MX_ADC1_Init(void)
   */
   sConfigInjected.InjectedChannel = ADC_CHANNEL_6;
   sConfigInjected.InjectedRank = ADC_INJECTED_RANK_1;
-  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_92CYCLES_5;
+  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_47CYCLES_5;
   sConfigInjected.InjectedSingleDiff = ADC_SINGLE_ENDED;
   sConfigInjected.InjectedOffsetNumber = ADC_OFFSET_NONE;
   sConfigInjected.InjectedOffset = 0;
@@ -617,7 +616,7 @@ static void MX_SPI3_Init(void)
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi3.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
