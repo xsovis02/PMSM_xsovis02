@@ -1,7 +1,7 @@
-main.c:185:6:HAL_TIM_PeriodElapsedCallback	24	static
-main.c:248:6:HAL_ADCEx_InjectedConvCpltCallback	56	static
-main.c:531:6:SystemClock_Config	248	static,ignoring_inline_asm
-main.c:939:6:HAL_GPIO_WritePin_Fast	0	static
-main.c:947:13:HAL_Delay	16	static
-main.c:447:5:main	136	static,ignoring_inline_asm
-main.c:968:6:Error_Handler	0	static,ignoring_inline_asm
+main.c:187:6:HAL_TIM_PeriodElapsedCallback	40	static
+main.c:257:6:HAL_ADCEx_InjectedConvCpltCallback	56	static
+main.c:538:6:SystemClock_Config	248	static,ignoring_inline_asm
+main.c:946:6:HAL_GPIO_WritePin_Fast	0	static
+main.c:954:13:HAL_Delay	16	static
+main.c:454:5:main	136	static,ignoring_inline_asm
+main.c:975:6:Error_Handler	0	static,ignoring_inline_asm

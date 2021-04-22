@@ -54,24 +54,24 @@
 #define b1_lpf_pll 		0.00624f
 #define b2_lpf_pll 		0.00624f
 
-// BPF filter edge frequencies		[950 Hz, 1050 Hz]
-#define a1_bpf_pll 		-1.87293f
-#define a2_bpf_pll 		0.96907f
-#define b1_bpf_pll 		0.01547f
+// BPF filter edge frequencies		[900 Hz, 1100 Hz]
+#define a1_bpf_pll 		-1.84507f
+#define a2_bpf_pll 		0.93906f
+#define b1_bpf_pll 		0.03047f
 #define b2_bpf_pll 		0.00000f
-#define b3_bpf_pll 		-0.01547f
+#define b3_bpf_pll 		-0.03047f
 
 /* Controllers constants ------------------------------------------------------*/
-#define Ki_pll 			0.00100f
-#define Kp_pll 			0.55000f //0.71200f
+#define Ki_pll 			0.00008875f
+#define Kp_pll 			0.04437345f
 
-#define K_d  			3.50000f 			// stability 70 PM
+#define K_d  			3.50000f 	// stability 70 PM
 #define Ki_d 			0.38000f
-#define K_q 			3.50000f // 7.75 // 7.5
-#define Ki_q 			0.38000f // 0.9562 // 0.78
+#define K_q 			4.84000f	//3.50000f // 7.75 // 7.5
+#define Ki_q 			0.65000f	//0.38000f // 0.9562 // 0.78
 
-#define Kp_omega		12.00000f
-#define Ki_omega		0.0180f
+#define Kp_omega		12.60000f
+#define Ki_omega		0.014500f
 
 /* USER CODE END PD */
 
@@ -182,6 +182,8 @@ float ybpf,ybpfk,ybpfkk,ubpfk,ubpfkk = 0.0f;
 
 float VFsin = 0.0f, VFcos = 0.0f, VFcounter=0.0f;
 
+float a1,a2,y = 0.0f;
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	// 1ms period
@@ -191,11 +193,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		PV_position = PV_position + (float) (diffCounter*toRad);
 		diffCounter = 0;
 
+
 		  if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
 		  {
 			  if (pointer > 10)
 			  {
-				  SP_omega = 11.0f;
+				  SP_omega = 13.0f;
+//				  SP_iq = 300.0f;
+//				  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+//				  HAL_GPIO_WritePin_Fast(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET);
 			  }
 			  measurement[pointer]        = yd;
 			  measurement[(1000+pointer)] = yq;
@@ -212,10 +218,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		  } else {
 //			  ud = 0.0f;
 //			  SP_iq = 0.0f;
+//			  SP_omega = 13.0f;
+//			  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+//			  HAL_GPIO_WritePin_Fast(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
 			  SP_omega = 0.0f;
 			  pointer = 0;
 		  }
-
 
 
 
@@ -229,18 +237,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			sum_omega = -500.0f;
 
 		SP_iq = Kp_omega*e_omega + sum_omega;
-//
-//
-//		 //PI position
-//	    e_position = SP_position - PV_position;
-//
-//		sum_position = sum_position + e_position;
-//			if (sum_position > 6.28)
-//			  sum_position = 6.28;
-//			else if (sum_position < -6.28)
-//			  sum_position = -6.28;
-//
-//	    SP_speed = K_position*e_position + Ki_position*sum_position;
+
+
+		 //PI position
+	    e_position = SP_position - PV_position;
+
+		sum_position = sum_position + e_position;
+			if (sum_position > 6.28)
+			  sum_position = 6.28;
+			else if (sum_position < -6.28)
+			  sum_position = -6.28;
+
+	    SP_speed = K_position*e_position + Ki_position*sum_position;
+
 	}
 }
 
@@ -249,7 +258,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 {
 	if (state == 1)
 	 {
-		HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET) ;
+		HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
 		//
 		  measureI[0] = hadc1.Instance->JDR1; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_1));
 		  measureI[1] = hadc1.Instance->JDR2; // (HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_2));
@@ -279,8 +288,8 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  angleRad = (encod - (int) encod) * twoPI;	// ((0.0 - 0.99) * 2PI
 
 		  // 2 us
-		//	  cosine = arm_cos_f32(angleRad);
-		//	  sine = arm_sin_f32(angleRad);
+//		  cosine = arm_cos_f32(angleRad);
+//		  sine = arm_sin_f32(angleRad);
 
 		  VFcos = arm_cos_f32(VFcounter)*2000.0f;
 		  VFsin = arm_sin_f32(VFcounter);
@@ -316,28 +325,25 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  PV_id = cosine*alpha + sine*beta;
 		  PV_iq = -sine*alpha + cosine*beta;
 
-		  //yq = PV_iq;
-		  yq = 0.8957f*yqk  + 0.0522f*PV_iq + 0.0522f*uqk;
+		  yq = PV_iq;
+//		  yq = 0.8957f*yqk  + 0.0522f*PV_iq + 0.0522f*uqk;
+//		  yqk = yq;
+//		  uqk = PV_iq;
+
 		  yd = 0.8957f*ydk  + 0.0522f*PV_id + 0.0522f*udk;
-
-
-		  yqk = yq;
-		  uqk = PV_iq;
-
 		  ydk = yd;
 		  udk = PV_id;
 
-		  ybpf = -a1_bpf_pll*ybpfk -a2_bpf_pll*ybpfkk + b1_bpf_pll*PV_iq + b2_bpf_pll*ubpfk + b3_bpf_pll*ubpfkk;
 
+		  ybpf = -a1_bpf_pll*ybpfk -a2_bpf_pll*ybpfkk + b1_bpf_pll*yq + b2_bpf_pll*ubpfk + b3_bpf_pll*ubpfkk;
 		  ybpfk = ybpf;
 		  ybpfkk = ybpfk;
-		  ubpfk = PV_iq;
+		  ubpfk = yq;
 		  ubpfkk = ubpfk;
 
 		  ybpf = ybpf * VFsin;
 
 		  ylpf = -a1_lpf_pll*ylpfk + b1_lpf_pll*ybpf + b2_lpf_pll*ulpfk;
-
 		  ylpfk = ylpf;
 		  ulpfk = ybpf;
 
@@ -378,6 +384,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 
 		  ud = (K_d*e_d + sum_d)+VFcos;
 		  uq = K_q*e_q + sum_q;
+
 
 
 		 //Inverse transformation
