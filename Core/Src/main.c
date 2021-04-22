@@ -49,12 +49,17 @@
 
 
 /* Filter constants-----------------------------------------------------------*/
-// LPF filter, cut-off frequency	[40 Hz]
+// LPF filter feedback, cut-off frequency	[450 Hz]
+#define a1_lpf 			-0.86776f
+#define b1_lpf 			0.06612f
+#define b2_lpf 			0.06612f
+
+// LPF filter PLL, cut-off frequency	[40 Hz]
 #define a1_lpf_pll 		-0.98751f
 #define b1_lpf_pll 		0.00624f
 #define b2_lpf_pll 		0.00624f
 
-// BPF filter edge frequencies		[900 Hz, 1100 Hz]
+// BPF filter PLL edge frequencies		[900 Hz, 1100 Hz]
 #define a1_bpf_pll 		-1.84507f
 #define a2_bpf_pll 		0.93906f
 #define b1_bpf_pll 		0.03047f
@@ -62,13 +67,15 @@
 #define b3_bpf_pll 		-0.03047f
 
 /* Controllers constants ------------------------------------------------------*/
-#define Ki_pll 			0.00008875f
-#define Kp_pll 			0.04437345f
+#define Ki_pll 			0.00014200f
+#define Kp_pll 			0.07099752f
 
-#define K_d  			3.50000f 	// stability 70 PM
-#define Ki_d 			0.38000f
-#define K_q 			4.84000f	//3.50000f // 7.75 // 7.5
-#define Ki_q 			0.65000f	//0.38000f // 0.9562 // 0.78
+#define K_d				11.92774715f
+#define Ki_d			0.75000000f
+#define K_q				11.45063726f
+#define Ki_q			0.90000000f
+//#define K_q 			4.84000f	//3.50000f // 7.75 // 7.5
+//#define Ki_q 			0.65000f	//0.38000f // 0.9562 // 0.78
 
 #define Kp_omega		12.60000f
 #define Ki_omega		0.014500f
@@ -194,49 +201,20 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		diffCounter = 0;
 
 
-		  if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
-		  {
-			  if (pointer > 10)
-			  {
-				  SP_omega = 13.0f;
-//				  SP_iq = 300.0f;
-//				  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-//				  HAL_GPIO_WritePin_Fast(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET);
-			  }
-			  measurement[pointer]        = yd;
-			  measurement[(1000+pointer)] = yq;
-			  measurement[(2000+pointer)] = ypi;
-			  measurement[(3000+pointer)] = uq;
-			  measurement[(4000+pointer)] = PV_speed;
-			  measurement[(5000+pointer)] = PV_omega;
-			  measurement[(6000+pointer)] = angleRad;
-			  measurement[(7000+pointer)] = fi;
-
-			  if (pointer < 1000)
-				  pointer++;
-
-		  } else {
-//			  ud = 0.0f;
-//			  SP_iq = 0.0f;
-//			  SP_omega = 13.0f;
-//			  HAL_GPIO_WritePin_Fast(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
-//			  HAL_GPIO_WritePin_Fast(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
-			  SP_omega = 0.0f;
-			  pointer = 0;
-		  }
 
 
 
-		// PI speed
-		e_omega = SP_omega - PV_omega;
-		sum_omega = Ki_omega*e_omega + sum_omega;
-
-		if (sum_omega > 500.0f)
-			sum_omega = 500.0f;
-		else if (sum_omega < -500.0f)
-			sum_omega = -500.0f;
-
-		SP_iq = Kp_omega*e_omega + sum_omega;
+//
+//		// PI speed
+//		e_omega = SP_omega - PV_omega;
+//		sum_omega = Ki_omega*e_omega + sum_omega;
+//
+//		if (sum_omega > 500.0f)
+//			sum_omega = 500.0f;
+//		else if (sum_omega < -500.0f)
+//			sum_omega = -500.0f;
+//
+//		SP_iq = Kp_omega*e_omega + sum_omega;
 
 
 		 //PI position
@@ -288,8 +266,8 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  angleRad = (encod - (int) encod) * twoPI;	// ((0.0 - 0.99) * 2PI
 
 		  // 2 us
-//		  cosine = arm_cos_f32(angleRad);
-//		  sine = arm_sin_f32(angleRad);
+		  cosine = arm_cos_f32(angleRad);
+		  sine = arm_sin_f32(angleRad);
 
 		  VFcos = arm_cos_f32(VFcounter)*2000.0f;
 		  VFsin = arm_sin_f32(VFcounter);
@@ -330,7 +308,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 //		  yqk = yq;
 //		  uqk = PV_iq;
 
-		  yd = 0.8957f*ydk  + 0.0522f*PV_id + 0.0522f*udk;
+		  yd = -a1_lpf*ydk  + b1_lpf*PV_id + b2_lpf*udk;
 		  ydk = yd;
 		  udk = PV_id;
 
@@ -361,8 +339,8 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  else if (fi < 0)
 			  fi = twoPI;
 
-		  cosine = arm_cos_f32(fi);
-		  sine = arm_sin_f32(fi);
+//		  cosine = arm_cos_f32(fi);
+//		  sine = arm_sin_f32(fi);
 
 
 		  //PI current
@@ -385,7 +363,32 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  ud = (K_d*e_d + sum_d)+VFcos;
 		  uq = K_q*e_q + sum_q;
 
+		  if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
+		  {
+			  if (pointer > 10)
+			  {
+//				  SP_omega = 13.0f;
+				  SP_iq = 300.0f;
+			  }
+			  measurement[pointer]        = yd;
+			  measurement[(1000+pointer)] = yq;
+			  measurement[(2000+pointer)] = ypi;
+			  measurement[(3000+pointer)] = uq;
+			  measurement[(4000+pointer)] = PV_speed;
+			  measurement[(5000+pointer)] = PV_omega;
+			  measurement[(6000+pointer)] = angleRad;
+			  measurement[(7000+pointer)] = fi;
 
+			  if (pointer < 1000)
+				  pointer++;
+
+		  } else {
+//			  ud = 0.0f;
+			  SP_iq = 0.0f;
+//			  SP_omega = 13.0f;
+//			  SP_omega = 0.0f;
+			  pointer = 0;
+		  }
 
 		 //Inverse transformation
 		  alpha = cosine*ud - sine*uq;
