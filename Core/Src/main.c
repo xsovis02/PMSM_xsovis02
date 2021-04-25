@@ -42,10 +42,12 @@
 #define toAmp      		0.00048828f
 #define twoPI		 	6.283185f
 #define stepTwoPI		5.969026f
+#define stepTwoPIlf		6.270619f
 #define encoderConst 	0.000061035f
 #define toRads     		0.000383495f
 #define toRad 	   		0.383495f
 #define VFstep			0.314159f // 2PI/20 - 1000Hz
+#define LFstep			0.0125f
 
 
 /* Filter constants-----------------------------------------------------------*/
@@ -70,15 +72,18 @@
 #define Ki_pll 			0.00014200f
 #define Kp_pll 			0.07099752f
 
-#define K_d				11.92774715f
-#define Ki_d			0.75000000f
-#define K_q				11.45063726f
-#define Ki_q			0.90000000f
-//#define K_q 			4.84000f	//3.50000f // 7.75 // 7.5
-//#define Ki_q 			0.65000f	//0.38000f // 0.9562 // 0.78
+#define K_d				36.929398897f
+#define Ki_d			0.829300000f
+#define K_q				36.929398897f
+#define Ki_q			0.82930000f
+//#define K_q				4.29398897f
+//#define Ki_q			0.45000000f
 
-#define Kp_omega		12.60000f
-#define Ki_omega		0.014500f
+//#define Kp_omega		12.60000f
+//#define Ki_omega		0.014500f
+
+#define Kp_omega		8.115800f
+#define Ki_omega		0.012985f
 
 /* USER CODE END PD */
 
@@ -188,6 +193,7 @@ float yq,yqk,uqk = 0.0f;
 float ybpf,ybpfk,ybpfkk,ubpfk,ubpfkk = 0.0f;
 
 float VFsin = 0.0f, VFcos = 0.0f, VFcounter=0.0f;
+float LFsin = 0.0f, LFcounter = 0.0f;
 
 float a1,a2,y = 0.0f;
 
@@ -200,12 +206,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		PV_position = PV_position + (float) (diffCounter*toRad);
 		diffCounter = 0;
 
-
-
-
-
-//
-//		// PI speed
+////		 PI speed
 //		e_omega = SP_omega - PV_omega;
 //		sum_omega = Ki_omega*e_omega + sum_omega;
 //
@@ -215,18 +216,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 //			sum_omega = -500.0f;
 //
 //		SP_iq = Kp_omega*e_omega + sum_omega;
+//
+////		LFsin = arm_sin_f32(LFcounter);
+////
+////		LFcounter = LFcounter + LFstep;
+////			if (LFcounter > stepTwoPIlf)
+////				LFcounter = 0;
+//
+//		SP_omega = LFsin*2.0f + 12.0f;
 
 
-		 //PI position
-	    e_position = SP_position - PV_position;
 
-		sum_position = sum_position + e_position;
-			if (sum_position > 6.28)
-			  sum_position = 6.28;
-			else if (sum_position < -6.28)
-			  sum_position = -6.28;
-
-	    SP_speed = K_position*e_position + Ki_position*sum_position;
+//		 //PI position
+//	    e_position = SP_position - PV_position;
+//
+//		sum_position = sum_position + e_position;
+//			if (sum_position > 6.28)
+//			  sum_position = 6.28;
+//			else if (sum_position < -6.28)
+//			  sum_position = -6.28;
+//
+//	    SP_speed = K_position*e_position + Ki_position*sum_position;
 
 	}
 }
@@ -265,7 +275,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  encod = encoder*encoderConst*11.0f; // x / 16384 * 11 (polpares) (0.0 - 11.0)
 		  angleRad = (encod - (int) encod) * twoPI;	// ((0.0 - 0.99) * 2PI
 
-		  // 2 us
+//		   2 us
 		  cosine = arm_cos_f32(angleRad);
 		  sine = arm_sin_f32(angleRad);
 
@@ -303,10 +313,10 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  PV_id = cosine*alpha + sine*beta;
 		  PV_iq = -sine*alpha + cosine*beta;
 
-		  yq = PV_iq;
-//		  yq = 0.8957f*yqk  + 0.0522f*PV_iq + 0.0522f*uqk;
-//		  yqk = yq;
-//		  uqk = PV_iq;
+//		  yq = PV_iq;
+		  yq = -a1_lpf*yqk  + b1_lpf*PV_iq + b2_lpf*uqk;
+		  yqk = yq;
+		  uqk = PV_iq;
 
 		  yd = -a1_lpf*ydk  + b1_lpf*PV_id + b2_lpf*udk;
 		  ydk = yd;
@@ -338,7 +348,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 			  fi = 0.0f;
 		  else if (fi < 0)
 			  fi = twoPI;
-
+//
 //		  cosine = arm_cos_f32(fi);
 //		  sine = arm_sin_f32(fi);
 
@@ -369,28 +379,36 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 			  {
 //				  SP_omega = 13.0f;
 				  SP_iq = 300.0f;
+				  SP_id = 0.0f;
 			  }
 			  measurement[pointer]        = yd;
 			  measurement[(1000+pointer)] = yq;
-			  measurement[(2000+pointer)] = ypi;
-			  measurement[(3000+pointer)] = uq;
-			  measurement[(4000+pointer)] = PV_speed;
-			  measurement[(5000+pointer)] = PV_omega;
+			  measurement[(2000+pointer)] = PV_id;
+			  measurement[(3000+pointer)] = PV_iq;
+			  measurement[(4000+pointer)] = ud;
+			  measurement[(5000+pointer)] = uq;
 			  measurement[(6000+pointer)] = angleRad;
-			  measurement[(7000+pointer)] = fi;
+			  measurement[(7000+pointer)] = SP_iq;
 
 			  if (pointer < 1000)
 				  pointer++;
 
 		  } else {
-//			  ud = 0.0f;
+			  ud = 0.0f;
+			  uq = 0.0f;
 			  SP_iq = 0.0f;
-//			  SP_omega = 13.0f;
+			  SP_id = 0.0f;
+			  sum_d = 0.0f;
+			  sum_q = 0.0f;
+			  omega = 0.0f;
+			  fi = 0.0f;
+
+//			  			  SP_omega = 13.0f;
 //			  SP_omega = 0.0f;
 			  pointer = 0;
 		  }
 
-		 //Inverse transformation
+	      //Inverse transformation
 		  alpha = cosine*ud - sine*uq;
 		  beta  = sine*ud + cosine*uq;
 
