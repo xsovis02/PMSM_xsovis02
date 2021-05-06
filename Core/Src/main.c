@@ -43,9 +43,10 @@
 #define twoPI		 	6.283185f
 #define stepTwoPI		5.969026f
 #define encoderConst 	0.000061035f
-#define toRads     		0.000383495f
-#define toRad 	   		0.383495f
+#define toRads 	   		0.383519f
 #define VFstep			0.314159f // 2PI/20 - 1000Hz
+#define slopeOme		0.1f
+#define slopePos		0.003f
 
 
 /* Filter constants-----------------------------------------------------------*/
@@ -54,12 +55,12 @@
 #define b1_lpf 			0.06612f
 #define b2_lpf 			0.06612f
 
-// LPF filter PLL, cut-off frequency	[40 Hz]
-#define a1_lpf_pll 		-0.98751f
-#define b1_lpf_pll 		0.00624f
-#define b2_lpf_pll 		0.00624f
+// LPF filter PLL, cut-off frequency	[50 Hz]
+#define a1_lpf_pll 		-0.98441f
+#define b1_lpf_pll 		0.00779f
+#define b2_lpf_pll 		0.00779f
 
-// BPF filter PLL edge frequencies		[900 Hz, 1100 Hz]
+// BPF filter edge frequencies		[900 Hz, 1100 Hz]
 #define a1_bpf_pll 		-1.84507f
 #define a2_bpf_pll 		0.93906f
 #define b1_bpf_pll 		0.03047f
@@ -67,16 +68,20 @@
 #define b3_bpf_pll 		-0.03047f
 
 /* Controllers constants ------------------------------------------------------*/
-#define Ki_pll 			0.00014200f
-#define Kp_pll 			0.07099752f
+#define Ki_pll 			0.000268f
+#define Kp_pll 			0.072f
 
 #define K_d				4.29398897f
 #define Ki_d			0.45000000f
 #define K_q				4.29398897f
 #define Ki_q			0.45000000f
 
-#define Kp_omega		12.60000f
-#define Ki_omega		0.014500f
+//#define Ki_omega 		0.0193f
+//#define Kp_omega 		3.15f
+#define Ki_omega 		0.0616f
+#define Kp_omega 		17.6f
+
+#define Kp_fi 			35.0f
 
 /* USER CODE END PD */
 
@@ -145,9 +150,11 @@ float e_position = 0.0f;
 float sum_position = 0.0f;
 
 float PV_position = 0.0f;
+float PV_position_encod = 0.0f;
 
 // setpoint position
-float SP_position = 2*3.14;
+float SP_position, SP_position_k, SP_k_position, SP_kk_position = 0.0f;
+
 
 
 uint16_t spiRxBuffer;
@@ -169,9 +176,11 @@ uint16_t pointer = 0;
 float ypi = 0.0f;
 
 float omega = 0.0f, PV_omega;
-float fi, fik = 0.0f;
+float fi, fim, fik = 0.0f;
 
 uint32_t state = 0;
+
+float SP_omega_k = 0.0f;;
 
 
 
@@ -187,19 +196,36 @@ float ybpf,ybpfk,ybpfkk,ubpfk,ubpfkk = 0.0f;
 
 float VFsin = 0.0f, VFcos = 0.0f, VFcounter=0.0f;
 
-float a1,a2,y = 0.0f;
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	// 1ms period
 	if (htim->Instance == TIM2)
 	{
-		PV_speed = (float) diffCounter * toRad; // rad/ms
-		PV_position = PV_position + (float) (diffCounter*toRad);
+		PV_speed = (float) diffCounter*toRads; // rad/s
+		PV_position_encod = PV_position_encod + ((float) (diffCounter)*toRads)*0.001;
 		diffCounter = 0;
 
+//		if (SP_omega > SP_omega_k)
+//		{
+//			SP_omega_k = SP_omega_k + slopeOme;
+//			if (SP_omega_k > SP_omega)
+//			{
+//				SP_omega_k = SP_omega;
+//			}
+//		}
+//		else if (SP_omega < SP_omega_k)
+//		{
+//			SP_omega_k = SP_omega_k - slopeOme;
+//			if (SP_omega_k < SP_omega)
+//			{
+//				SP_omega_k = SP_omega;
+//			}
+//		}
+
+		SP_omega_k = SP_omega;
+
 //		 PI speed
-		e_omega = SP_omega - PV_omega;
+		e_omega = SP_omega_k - PV_omega;
 		sum_omega = Ki_omega*e_omega + sum_omega;
 
 		if (sum_omega > 500.0f)
@@ -209,44 +235,74 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 		SP_iq = Kp_omega*e_omega + sum_omega;
 
-		  if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
-			  		  {
-			  			  if (pointer > 10)
-			  			  {
-			  				  SP_omega = 13.0f;
-//			  				  SP_iq = 300.0f;
-			  			  }
-			  			  measurement[pointer]        = yd;
-			  			  measurement[(1000+pointer)] = yq;
-			  			  measurement[(2000+pointer)] = ypi;
-			  			  measurement[(3000+pointer)] = uq;
-			  			  measurement[(4000+pointer)] = PV_speed;
-			  			  measurement[(5000+pointer)] = PV_omega;
-			  			  measurement[(6000+pointer)] = angleRad;
-			  			  measurement[(7000+pointer)] = fi;
-
-			  			  if (pointer < 1000)
-			  				  pointer++;
-
-			  		  } else {
-//			  			  ud = 0.0f;
-//			  			  SP_iq = 0.0f;
-//			  			  SP_omega = 13.0f;
-			  			  SP_omega = 0.0f;
-			  			  pointer = 0;
-			  		  }
-
-//		 //PI position
-//	    e_position = SP_position - PV_position;
 //
-//		sum_position = sum_position + e_position;
-//			if (sum_position > 6.28)
-//			  sum_position = 6.28;
-//			else if (sum_position < -6.28)
-//			  sum_position = -6.28;
-//
-//	    SP_speed = K_position*e_position + Ki_position*sum_position;
+		 //PI position
+		PV_position = fim*0.090909f;
 
+		// filtrace
+//		SP_position_k = 0.99f*SP_k_position + 0.01f*SP_kk_position;
+//		SP_kk_position = SP_position;
+//		SP_k_position = SP_position_k;
+
+//		if(state == 1)
+//		{
+//			if (SP_position > SP_position_k)
+//			{
+//				SP_position_k = SP_position_k + slopePos;
+//				if (SP_position_k > SP_position)
+//				{
+//					SP_position_k = SP_position;
+//				}
+//			}
+//			else if (SP_position < SP_position_k)
+//			{
+//				SP_position_k = SP_position_k - slopePos;
+//				if (SP_position_k < SP_position)
+//				{
+//					SP_position_k = SP_position;
+//				}
+//			}
+//		}
+//
+//		e_position = SP_position_k - PV_position;
+//
+//		SP_omega = Kp_fi*e_position;
+
+
+
+		if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13))
+		  {
+			  if (pointer > 10)
+			  {
+//				  SP_position = 0.5f;
+				  SP_omega = 10.0f;
+//				  SP_id = 0.0f;
+//				  SP_iq = 200.0f;
+
+			  }
+			  measurement[pointer]        = yq;
+			  measurement[(1000+pointer)] = SP_omega;
+			  measurement[(2000+pointer)] = sum_omega;
+			  measurement[(3000+pointer)] = SP_omega_k;
+			  measurement[(4000+pointer)] = PV_speed;
+			  measurement[(5000+pointer)] = PV_omega;
+			  measurement[(6000+pointer)] = angleRad;
+			  measurement[(7000+pointer)] = fi;
+
+			  if (pointer < 1000)
+				  pointer++;
+
+		  } else {
+			  SP_position = -0.5f;
+			  SP_omega = 0.0f;
+//				  			  SP_iq = 0.0f;
+			  sum_omega = 0.0f;
+//				  			  omega= 0.0f;
+//				  			  fi = 0.0f;
+//				  			  ybpf = 0.0f;
+//				  			  ylpf = 0.0f;
+			  pointer = 0;
+		  }
 	}
 }
 
@@ -350,6 +406,7 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 		  omega = omega + Ki_pll*ylpf;
 
 		  fi = fi+ypi;
+		  fim = fim+ypi;
 
 		  PV_omega = omega*2000.0f;
 
@@ -381,6 +438,8 @@ void HAL_ADCEx_InjectedConvCpltCallback (ADC_HandleTypeDef * hadc)
 
 		  ud = (K_d*e_d + sum_d)+VFcos;
 		  uq = K_q*e_q + sum_q;
+
+
 
 	      //Inverse transformation
 		  alpha = cosine*ud - sine*uq;
@@ -495,10 +554,6 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-
-  SP_id = 0.0f;
-  SP_iq = 0.0f;
-
 
   // initial zeroing
   if(state == 0)
@@ -756,7 +811,7 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM2;
-  sConfigOC.Pulse = 1199;
+  sConfigOC.Pulse = 999;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
@@ -766,11 +821,11 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.Pulse = 899;
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
+  sConfigOC.Pulse = 899;
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
